@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -8,7 +9,7 @@ namespace ConsoleApp1.Cache
 {
     public class BaseCache<TValue>
     {
-        private readonly IDictionary<string, TValue> hash = new Dictionary<string, TValue>();
+        private readonly ConcurrentDictionary<string, TValue> cache = new ConcurrentDictionary<string, TValue>();
 
         /// <summary>
         /// gets the cache key parts as inputs: f.e. "keyPart1", "keyPart2", "keyPart3"
@@ -29,30 +30,21 @@ namespace ConsoleApp1.Cache
             return retVal;
         }
 
-        public void SetCacheValue(IEnumerable<string> keyParts, TValue value)
-        {
-            hash[CacheKey(keyParts)] = value;
-        }
-
-        public void SetCacheValue(string key, TValue value)
-        {
-            SetCacheValue(new[] { key }, value);
-        }
-
-        public bool TryGetCacheValue(IEnumerable<string> keyParts, out TValue value)
-        {
-            var cacheKey = CacheKey(keyParts);
-            return hash.TryGetValue(cacheKey, out value);
-        }
-
-        public bool TryGetCacheValue(string key, out TValue value)
-        {
-            return TryGetCacheValue(new[] { key }, out value);
-        }
-
         private string[] GetCacheKeys_WhichStartWith(string startWith)
         {
-            return hash.Where(p => p.Key.ToLower().StartsWith(startWith.ToLower())).Select(p => p.Key).ToArray();
+            return cache.Where(p => p.Key.ToLower().StartsWith(startWith.ToLower())).Select(p => p.Key).ToArray();
+        }
+
+        public TValue GetOrAdd(IEnumerable<string> keyParts, Func<IEnumerable<string>, TValue> valueFactory)
+        {
+            var keyPartsEnumerated = keyParts.ToArray();
+            var cacheKey = CacheKey(keyPartsEnumerated);
+            return cache.GetOrAdd(cacheKey, (key) => valueFactory(keyPartsEnumerated));
+        }
+
+        public TValue GetOrAdd(string cacheKey, Func<string, TValue> valueFactory)
+        {
+            return cache.GetOrAdd(cacheKey, valueFactory);
         }
 
         public void ClearCache(string keyStartsWith)
@@ -65,13 +57,15 @@ namespace ConsoleApp1.Cache
             switch (keyStartsWith.ToLower())
             {
                 case "all":
-                    hash.Clear();
+                    cache.Clear();
                     return;
                 default:
-                    var envKeys = GetCacheKeys_WhichStartWith(keyStartsWith);
-                    foreach (var envKey in envKeys) hash.Remove(envKey);
-                    break;
+                    var keys = GetCacheKeys_WhichStartWith(keyStartsWith);
+                    TValue value;
+                    foreach (var key in keys) cache.TryRemove(key, out value);
+                    return;
             }
         }
+
     }
 }
